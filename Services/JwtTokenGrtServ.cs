@@ -1,4 +1,5 @@
 ﻿using Microsoft.IdentityModel.Tokens;
+using Presentation.Interfaces;
 using Presentation.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -6,10 +7,6 @@ using System.Text;
 
 namespace Presentation.Services
 {
-    public interface IJwtTokenGenerator
-    {
-        Task<string> CreateTokenAsync(ApplicationUser user, IList<string> roles);
-    }
 
     public class JwtTokenGenerator : IJwtTokenGenerator
     {

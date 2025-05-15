@@ -2,14 +2,8 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Presentation.Models;
-using Presentaion.Data;           
-using Presentation.Services;     
-
-public interface IVerificationService
-{
-    Task SendCodeAsync(ApplicationUser user, CancellationToken ct = default);
-    Task<bool> VerifyCodeAsync(Guid userId, string plainCode, CancellationToken ct = default);
-}
+using Presentaion.Data;
+using Presentation.Interfaces;
 
 public sealed class VerificationService(
         ApplicationDbContext db,
@@ -17,6 +11,9 @@ public sealed class VerificationService(
 {
     public async Task SendCodeAsync(ApplicationUser user, CancellationToken ct = default)
     {
+        if (user.EmailConfirmed)
+            return;
+
         var code = RandomNumberGenerator.GetInt32(100000, 999999).ToString();   
 
         db.EmailVerificationTokens.Add(new EmailVfTokenEntity

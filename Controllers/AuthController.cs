@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Presentation.Interfaces;
 using Presentation.Models;
 using Presentation.Services;
 
@@ -14,17 +15,20 @@ public class AuthController : ControllerBase
     private readonly IJwtTokenGenerator _tokenGen;
     private readonly IVerificationService _verifier;
     private readonly RoleManager<ApplicationRole> _rm;
+    private readonly IRefreshTokenService _refreshSvc;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
         IJwtTokenGenerator tokenGen,
         IVerificationService verifier,
-        RoleManager<ApplicationRole> roleManager)
+        RoleManager<ApplicationRole> roleManager,
+        IRefreshTokenService refreshToken)
     {
         _userManager = userManager;
         _tokenGen = tokenGen;
         _verifier = verifier;
         _rm = roleManager;
+        _refreshSvc = refreshToken;
     }
 
     [HttpPost("register")]
@@ -84,19 +88,40 @@ public class AuthController : ControllerBase
         try
         {
             var user = await _userManager.FindByEmailAsync(dto.Email);
-            if (user == null)
-                return Unauthorized(new { success = false, message = "Invalid credentials." });
-
-            if (!await _userManager.CheckPasswordAsync(user, dto.Password))
+            if (user == null || !await _userManager.CheckPasswordAsync(user, dto.Password))
                 return Unauthorized(new { success = false, message = "Invalid credentials." });
 
             if (!await _userManager.IsEmailConfirmedAsync(user))
-                return BadRequest(new { success = false, message = "Email address has not been verified." });
+            {
+                await _verifier.SendCodeAsync(user);   
+                return Ok(new
+                {
+                    success = true,      
+                    requiresVerification = true,
+                    userId = user.Id,
+                    message = "A verification code has been sent to your email."
+                });
+            }
 
             var roles = await _userManager.GetRolesAsync(user);
             var token = await _tokenGen.CreateTokenAsync(user, roles);
+            var refreshToken = await _refreshSvc.GenerateAsync(user.Id); 
 
-            return Ok(new { success = true, token });
+            Response.Cookies.Append("refreshToken", refreshToken, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = "/",
+                Expires = DateTimeOffset.UtcNow.AddDays(30)
+            });
+
+            return Ok(new
+            {
+                success = true,
+                requiresVerification = false,
+                token
+            });
         }
         catch (Exception ex)
         {
@@ -107,6 +132,34 @@ public class AuthController : ControllerBase
                 detail = ex.Message
             });
         }
+    }
+
+    [HttpPost("refresh-token")]
+    public async Task<IActionResult> RefreshToken()
+    {
+        var old = Request.Cookies["refreshToken"];
+        if (string.IsNullOrEmpty(old)) return Unauthorized();
+
+        var userId = await _refreshSvc.ValidateAsync(old);
+        if (userId == null) return Unauthorized();
+
+        var user = await _userManager.FindByIdAsync(userId.ToString());
+        if (user == null) return Unauthorized();
+
+        var roles = await _userManager.GetRolesAsync(user);
+        var newJwt = await _tokenGen.CreateTokenAsync(user, roles);
+        var newRefresh = await _refreshSvc.RotateAsync(old, userId.Value);
+
+        Response.Cookies.Append("refreshToken", newRefresh, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/",
+            Expires = DateTimeOffset.UtcNow.AddDays(30)
+        });
+
+        return Ok(new { token = newJwt });
     }
 
     [HttpPost("verify-email")]
@@ -122,7 +175,19 @@ public class AuthController : ControllerBase
             user.EmailConfirmed = true;
             await _userManager.UpdateAsync(user);
 
+            var refreshToken = await _refreshSvc.GenerateAsync(user.Id);
+
+            Response.Cookies.Append("refreshToken", refreshToken, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.Strict,
+                Path = "/",
+                Expires = DateTimeOffset.UtcNow.AddDays(30)
+            });
+
             return Ok(new { success = true, message = "Email successfully verified." });
+
         }
         catch (Exception ex)
         {
@@ -134,6 +199,26 @@ public class AuthController : ControllerBase
             });
         }
     }
+
+    [HttpPost("send-code")]
+    public async Task<IActionResult> SendCode([FromBody] SendCodeDto dto)
+    {
+        var user = await _userManager.FindByEmailAsync(dto.Email);
+        if (user == null)
+            return NotFound(new { success = false, message = "User not found." });
+
+        await _verifier.SendCodeAsync(user);
+        return Ok(new { success = true, message = "Verification code sent." });
+    }
+
+    [HttpPost("logout")]
+    public IActionResult Logout()
+    {
+        Response.Cookies.Delete("refreshToken");
+
+        return Ok(new { success = true, message = "Logged out successfully." });
+    }
+
 
     [HttpDelete("{userId:guid}")]
     [Authorize(Roles = "Admin")]
@@ -173,4 +258,5 @@ public class AuthController : ControllerBase
     public record RegisterDto(string Email, string Password, string FirstName, string LastName);
     public record LoginDto(string Email, string Password);
     public record VerifyDto(Guid UserId, string Code);
+    public record SendCodeDto(string Email);
 }

@@ -6,9 +6,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Presentaion.Data;
+using Presentation.Interfaces;
 using Presentation.Models;
 using Presentation.Services;
-using IEmailSender = Presentation.Services.IEmailSender;
+using IEmailSender = Presentation.Interfaces.IEmailSender;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +24,18 @@ var sbTopic = configuration["ServiceBus:EmailVerifyTopic"] ?? "email-verify";
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend",
+        policy => policy
+            .WithOrigins("http://localhost:3000") 
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials() 
+    );
+});
+
 
 builder.Services
        .AddIdentity<ApplicationUser, ApplicationRole>(options =>
@@ -53,6 +66,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddTransient<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IEmailSender, AzureEmailSender>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
 
 
@@ -100,6 +114,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseCors("AllowFrontend");
 
 app.UseHttpsRedirection();
 app.UseAuthentication();

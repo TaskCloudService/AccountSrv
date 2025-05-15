@@ -1,12 +1,9 @@
 ﻿using Azure.Communication.Email;
 using Azure;
+using Presentation.Interfaces;
 
 namespace Presentation.Services
 {
-    public interface IEmailSender
-    {
-        Task SendAsync(string to, string subject, string htmlBody, CancellationToken ct = default);
-    }
 
     public sealed class AzureEmailSender : IEmailSender
     {

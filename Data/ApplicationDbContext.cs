@@ -15,6 +15,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
     // Custom entities
     public DbSet<ProfileEntity> Profiles => Set<ProfileEntity>();
     public DbSet<AddressEntity> Addresses => Set<AddressEntity>();
+    public DbSet<RefreshTokenEntity> RefreshTokens => Set<RefreshTokenEntity>();
     public DbSet<EmailVfTokenEntity> EmailVerificationTokens => Set<EmailVfTokenEntity>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -52,5 +53,16 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, Applicati
                .HasOne(t => t.User)
                .WithMany()
                .HasForeignKey(t => t.UserId);
+
+        builder.Entity<RefreshTokenEntity>(b =>
+        {
+            b.ToTable("auth_RefreshTokens");
+            b.HasKey(r => r.Id);
+            b.Property(r => r.Token).IsRequired();
+            b.HasIndex(r => r.Token).IsUnique();
+            b.HasOne(r => r.User)
+             .WithMany(u => u.RefreshTokens)
+             .HasForeignKey(r => r.UserId);
+        });
     }
 }
